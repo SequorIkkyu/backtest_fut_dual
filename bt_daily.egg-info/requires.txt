@@ -1,0 +1,9 @@
+pandas
+numpy
+matplotlib
+plotly>=6.0.0
+polars
+pyarrow>=23.0.1
+fastparquet>=2026.3.0
+joblib>=1.5.3
+numba>=0.65.0

@@ -1,0 +1,340 @@
+Metadata-Version: 2.4
+Name: bt-daily
+Version: 0.1.0
+Summary: Add your description here
+Requires-Python: <3.11,>=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: pandas
+Requires-Dist: numpy
+Requires-Dist: matplotlib
+Requires-Dist: plotly>=6.0.0
+Requires-Dist: polars
+Requires-Dist: pyarrow>=23.0.1
+Requires-Dist: fastparquet>=2026.3.0
+Requires-Dist: joblib>=1.5.3
+Requires-Dist: numba>=0.65.0
+
+# Agent Workspace Guide
+
+> **Maker-hedger foundation boundary (2026-08-13):** `common/` is the canonical reusable foundation and `public_tools/` is a frozen legacy compatibility implementation. The supported foundation verification runtime is CPython 3.10.13. The S0 operational remediation programme is covered by 216 passing acceptance tests (144 foundation + 72 legacy); what remains is a frozen realistic policy/test-day episode for S0 promotion evidence — see [the operational remediation plan](docs/archive_2608/maker-hedger-s0-operational-remediation-plan_26-08-08.md). Production replay now uses strict atomic exchange batches; see [the exchange-batch contract](docs/exchange-batch-replay-contract_26-08-13.md) and [the foundation boundary](docs/archive_2608/maker-hedger-foundation-boundary_26-08-08.md).
+
+## Project Purpose
+
+这个工作区是一个 **Python 期货 tick 级跨合约价差回测 / 研究仓库**，重点在：
+
+- 多个版本的价差策略实验（`example_arb`、`example_arb_V1`、`example_arb_V2`、`example_arb_V3`、`example_arb_With_Pred_V1`）
+- 共享撮合 / 持仓 / PnL / 风控基础设施（`public_tools/`）与 BackTest 专属策略扩展（`BackTest/tools/`）
+- 参数搜索基础设施（`ParamsSearch/`）与版本内 research 工具
+- 回测回归测试、Golden Master 对比、性能与诊断脚本（`TestScripts/`）
+
+当前工作区的**活跃研究主线**已经转到 `example_arb_With_Pred_V2`；`example_arb_With_Pred_V1` 仍保留为 prediction 行为层的稳定基线，以及性能 / Golden Master / 旧参数搜索的对照版本。
+
+仓库没有单一“全局唯一入口”：各版本都通过各自的 `main.py` 和 `config/config_ag.py` 独立运行。
+
+## Tech Stack
+
+- 语言：Python（`pyproject.toml` 要求 `>=3.11`；当前工作区已配置 `.venv`，实际环境为 Python 3.13.2；foundation 验证运行时为 CPython 3.10.13）
+- 打包 / 项目配置：`pyproject.toml`、`setuptools`
+- 依赖管理线索：`uv.lock`、`[tool.uv.*]` 配置存在；**安装命令需要确认**
+- 核心数值 / 数据处理：`pandas`、`numpy`、`polars`、`pyarrow`、`fastparquet`
+- 并行：`joblib`
+- 性能优化：`numba`
+- 绘图与诊断：`matplotlib`、`plotly`
+- 测试：`pytest`
+- 参数搜索：`Optuna`（由 `ParamsSearch/optimize_fair_params.py` 代码导入确认）
+- Foundation 合约版本：`0.13.0`（[foundation_contracts.py](foundation_contracts.py)）；研究遥测模式：`1.5.0`（[research_telemetry.py](research_telemetry.py)）
+- 运行形态：本地 / 研究型 CLI 回测工具；**未发现 Web 服务、API 路由层、数据库模型层、标准 CI 配置**
+
+## Directory Map
+
+- `public_tools/`: 共享基础设施（冻结的遗留兼容性）。只保留市场撮合、数据加载、日度主次合约调度、基础策略类、PnL 分层、交易所风控等公共能力。
+- `common/`: **Canonical foundation（活跃的 S0 开发面）。** 制作商-对冲者基础的可重用公共 API、合约和验证组件。S0 运营证据的唯一来源。
+  - `foundation_api.py` — `DualBookFoundation` 公共门面（提交、到达、执行、EOD、PnL 归属）
+  - `foundation_contracts.py` — 不可变合约（`DecisionContext`、`OrderIntent`、`PassiveFillEvidence`、`PolicyProposal`、`PolicyTrigger`、`EodCompletion`、`PnlAttributionResult`）
+  - `production_replay.py` — 支持的操作性 S0 重放适配器（strict loader → `CausalIngress` → `DualBookFoundation` → 日历 EOD → PnL → 研究导出）
+  - `passive_matching.py` — 基于因果摄入的被动成交匹配（价格-时间分配、成交身份、数量守恒）
+  - `research_telemetry.py` — 研究拥有的 S0 遥测导出和字段级验证（类型、可空性、枚举、交叉表联接）
+  - `pnl_attribution.py` — 独立瀑布式 PnL 归属和分类账对账
+  - `ingress.py` — `CausalIngress`：接收时因果账面和信号摄入
+  - `stress.py` — 可组合的压力维度（市场/信号延迟、提交/到达时序、参与、费用、基差、波动性）
+  - `telemetry.py` — 规范组件遥测发射器（支持诊断，不是研究符合性）
+  - `ledger.py` — `DualLegLedger`：不可变的双腿分类账效果流
+  - `tests/foundation/` — Foundation 验收套件（111 项测试，涵盖阶段 1-8：词汇表、摄入、执行、PnL、遥测、强化、运营修复）
+  - `docs/` — 修复计划、foundation 边界、架构决策记录
+- `BackTest/tools/`: BackTest 专属策略扩展层。包括套利 leg filter、pair tracker、session 绘图 helper、artifact layout、带诊断记录能力的 `DiagnosticStrategy`。
+- `example_arb/`: 原始基线版本；包含较完整的策略逻辑说明文档，适合理解主链路。
+- `example_arb_V1/`: 第一版演进策略。
+- `example_arb_V2/`: 第二版演进策略；引入 `pair_tracker.py` 等改进。
+- `example_arb_V3/`: 第三版演进策略；保留多份优化 / 降复杂度说明文档。
+- `example_arb_With_Pred_V1/`: 当前默认主入口版本；在 V3 基础上叠加 prediction 加载、覆盖校验、行为层路由。
+- `ParamsSearch/`: 参数搜索与优化入口；共享 infra 与优化产物默认落点都在这里。
+- `example_arb_With_Pred_V2/research/`: V2 专属的 diagnostics / audit / aggregation / triage / representative-date 研究代码。
+- `TestScripts/`: pytest 测试与一些研究辅助脚本；是改动后最先应看的验证入口。
+- `TestArtifacts/`: 测试 / 研究产物目录，包含归档与对比产物；默认不应手改。`TestArtifacts/contract_schedules/` 承载按品种持久化的日度主次合约映射缓存，供各版本回测复用。
+- `bt_daily.egg-info/`: 已生成的打包元数据；当前与 `pyproject.toml` 存在入口不一致风险，不应手改。
+- `.vscode/`: 编辑器本地配置；`python.envFile` 指向 `.vscode/.env`。
+- `.venv/`: 本地虚拟环境。
+- `docs/`: Foundation 架构文档。包括 S0 运营修复计划、foundation 边界规范和架构决策记录。
+
+## Key Entry Points
+
+- `pyproject.toml`: 项目依赖、包发现规则、声明的 console script 入口。
+- `example_arb_With_Pred_V1/main.py`: 当前主回测 CLI 入口；参数最全，负责装配策略、日期窗口、prediction runtime。
+- `example_arb_With_Pred_V1/config/config_ag.py`: 当前 AG 配置入口；大部分默认参数、输出目录、预测目录、风控阈值都在这里。
+- `example_arb_With_Pred_V1/bt_arb.py`: 日级调度、合约对选择、夜盘 / 日盘 session 加载、`Backtest` 主循环。
+- `example_arb_With_Pred_V1/spreader.py`: 双腿策略总控（建议遇到“策略为什么这么做”时优先读）。
+- `example_arb_With_Pred_V1/arb_spread.py`: Leg1 报价 / 开平 / 报撤单策略。
+- `example_arb_With_Pred_V1/hedger.py`: Leg2 对冲执行逻辑。
+- `example_arb_With_Pred_V1/prediction_loader.py`: prediction 文件加载、覆盖校验、严格 snapshot lookup。
+- `example_arb_With_Pred_V1/prediction_policy.py`: prediction 驱动 direct-flat / fallback 行为规则。
+- `example_arb_With_Pred_V1/session_diagnostics.py`: 单日 / session 级诊断表与报告汇总。
+- `public_tools/strategy.py`: 最小公共策略基类，负责持仓、成交后 PnL、下单 / 撤单 / 平仓 hook；不包含 BackTest 专属诊断字段或图表输出。
+- `public_tools/market.py`: 简化撮合与订单簿；改这里会影响所有版本。
+- `public_tools/data_loader.py`: CSV 清洗、session 切分、撮合辅助字段构造；公共入口是可继承的 `DataLoader`。
+- `BackTest/tools/contract_schedule.py`: 共享的日度主次合约选择 / 落盘 / 读取入口；工具入口是可继承的 `ContractScheduleBuilder`，按 exact underlying 前缀过滤 raw tick CSV，并只按当日最后累计 `totalvalue` 选出 `main_contract/sub_contract`，具体映射到 `contract_1/contract_2` 由各下游策略决定。
+- `public_tools/pnl_layers.py`: canonical PnL 分层列名与核心构造器；公共入口是可继承的 `PnLLayerBuilder`，事件日志合并、legacy 列清理、策略 record enrichment 放在 `BackTest/tools/pnl_layers.py`。
+- `public_tools/exchange_risk.py`: OTR 与阶梯消息费的核心公式；公共入口是可继承的 `ExchangeRiskCalculator`，套利报告行、开仓限额汇总、breakdown 展开放在 `BackTest/tools/exchange_risk.py`。
+- `BackTest/tools/diagnostic_strategy.py`: BackTest 各套利版本使用的诊断型策略基类，承接 session record、event log、prediction 字段、save/plot record。
+- `ParamsSearch/optimize_with_pred_params.py`: With_Pred 参数搜索主入口。
+- `ParamsSearch/optimize_fair_params.py`: fair 参数搜索主入口。
+- `ParamsSearch/optimize_v2_light.py`: With_Pred V2 轻量参数搜索入口。
+- `TestScripts/`: 测试入口目录；优先从对应领域的 `test_*.py` 反推改动边界。
+
+### Foundation entry points
+
+- `common/foundation_contracts.py` — 所有合约数据类、枚举和验证（`FOUNDATION_CONTRACT_VERSION = "0.13.0"`）。每个 foundation 模块都从这里导入。
+- `common/foundation_api.py::DualBookFoundation` — 唯一的公共门面。策略通过此 API 提交意图、安排到达、执行对冲、匹配被动成交、归属 PnL 和完成 EOD。
+- `common/production_replay.py::ProductionReplayAdapter` — 支持的 S0 运营重放运行器。连接 strict loader → `CausalIngress` → `DualBookFoundation` → 日历 EOD → 独立 PnL → 研究遥测。经济资格需要所有五个门控都通过（规范的遥测、PnL 存在 + 资格、研究存在 + 资格、执行新鲜度）。**这是 S0 证据的唯一路径；`backtest.py` 是冻结的兼容性。**
+- `common/ingress.py::CausalIngress` — 接收时因果摄入。按 `(available_at, source_seq, event_id)` 排序摄入事件，维护不可变的账面和信号快照，并构建 `DecisionContext` 值。
+- `common/research_telemetry.py::ResearchTelemetryEmitter` — 支持字段级类型、枚举、可空性和交叉表联接验证的研究拥有遥测。研究符合性输出与规范组件诊断分开保存。
+- `common/passive_matching.py::PassiveMatchingService` — Foundation 原生被动匹配。在接受时通过共享剩余数量预算分配因果交易；应用价格优先然后 FIFO 队列顺序；发出不透明的 `PassiveFillEvidence`。
+- `common/stress.py::StressScenario` — 一个版本化、声明的压力维度集合。向 `CausalIngress` 或 `DualBookFoundation` 应用市场延迟、信号延迟、提交/到达时序、参与、费用、基差、波动性和开盘会话控制。每个维度在其拥有的路径上恰好应用一次。
+- `common/pnl_attribution.py::PnlAttributionService` — 从不可变的 `DualLegLedger` 事件和价格观察构建非重叠瀑布（maker_capture、quoted_leg_price_pnl、hedge_leg_price_pnl、hedge_execution_shortfall、费用、回扣）。
+
+## Feature Map
+
+- 合约对选择 / 日期调度：`BackTest/tools/contract_schedule.py`（各版本 `bt_arb.py` 现在只保留薄封装 / 回测运行逻辑）
+- 市场数据加载与夜盘 / 日盘切分：`public_tools/data_loader.py`、`example_arb_With_Pred_V1/bt_arb.py`
+- 简化撮合 / 订单簿：`public_tools/market.py`
+- 单腿公共执行模板 / 持仓 / 成交后 PnL：`public_tools/strategy.py`
+- BackTest 单腿诊断记录 / save / plot：`BackTest/tools/diagnostic_strategy.py`
+- 双腿 spread 总控：`example_arb_With_Pred_V1/spreader.py`
+- Leg1 maker 报价与开平仓纪律：`example_arb_With_Pred_V1/arb_spread.py`
+- Leg2 hedge / requote / fallback：`example_arb_With_Pred_V1/hedger.py`
+- Prediction 覆盖检查与读取：`example_arb_With_Pred_V1/prediction_loader.py`
+- Prediction 驱动的 post-fill route / direct-flat 规则：`example_arb_With_Pred_V1/prediction_policy.py`
+- Pair / route 跟踪：`BackTest/tools/pair_tracker.py`（BackTest 策略专属）
+- PnL 分层核心口径：`public_tools/pnl_layers.py`；BackTest 诊断增强：`BackTest/tools/pnl_layers.py`
+- OTR / message fee 核心公式：`public_tools/exchange_risk.py`；BackTest 风控报告汇总：`BackTest/tools/exchange_risk.py`
+- Session 诊断、报表与图：各版本 `session_diagnostics.py` 与 `BackTest/tools/session_plotting.py`；根目录公开示例使用 `example_arb/session_plotting.py`
+- 参数搜索 / Optuna：`ParamsSearch/optimize_with_pred_params.py`、`ParamsSearch/optimize_fair_params.py`
+- Golden Master / 性能 / policy A/B / 阈值扫面：`TestScripts/with_pred_golden_compare.py`、`TestScripts/perf_with_pred_benchmark.py`、`TestScripts/with_pred_policy_ab.py`、`TestScripts/with_pred_threshold_sweep.py`
+
+### Foundation Feature Map
+
+- 制作商-对冲者公共门面：`common/foundation_api.py::DualBookFoundation`
+- 不可变合约和验证：`common/foundation_contracts.py`
+- 因果账面和信号摄入：`common/ingress.py::CausalIngress`
+- 到达时执行模型：`common/foundation_api.py` — 执行使用最新的因果可用账面深度；决策快照保留用于归因
+- 被动成交匹配（价格-时间分配、成交身份、数量守恒）：`common/passive_matching.py::PassiveMatchingService`
+- 日历 EOD 完成和会话中断处理：`common/foundation_api.py`、`common/production_replay.py`
+- 压力维度（市场/信号延迟、时序、参与、费用、基差、波动性、开盘会话）：`common/stress.py`
+- 独立 PnL 归属和对账：`common/pnl_attribution.py::PnlAttributionService`
+- 规范组件遥测：`common/telemetry.py::TelemetryEmitter`
+- 研究拥有的 S0 遥测导出（字段级类型、枚举、可空性、交叉表联接验证）：`common/research_telemetry.py::ResearchTelemetryEmitter`
+- 运营 S0 重放适配器（故障关闭的经济资格）：`common/production_replay.py::ProductionReplayAdapter`
+- 生产策略协议（`select_signal_ids` + `propose` → `PolicyProposal`）：`common/foundation_api.py::ProductionMakerHedgePolicy`
+- 分类账效果流（`DualLegLedger`）：`common/ledger.py`
+
+## Common Agent Tasks
+
+- 修改当前主策略行为：从 `example_arb_With_Pred_V1/main.py`、`config/config_ag.py`、`spreader.py`、`arb_spread.py`、`hedger.py`、`prediction_policy.py` 开始。
+- 修改 prediction 加载或覆盖逻辑：先看 `example_arb_With_Pred_V1/prediction_loader.py`，再看相关测试 `TestScripts/test_prediction_loader*.py`。
+- 修改 fair / quote / 风控参数：先看 `example_arb_With_Pred_V1/config/config_ag.py`，再追 `main.py::build_backtest()` 的装配路径。
+- 修改合约选择、日度主次合约落盘、session 组织、日期窗口：先看 `BackTest/tools/contract_schedule.py` 的 `ContractScheduleBuilder`，再看对应版本 `bt_arb.py` 的薄封装与 `main.py` 装配路径。
+- 修改撮合、撤单、订单生命周期：先看 `public_tools/market.py` 和 `public_tools/strategy.py`；若涉及 BackTest 诊断记录，再看 `BackTest/tools/diagnostic_strategy.py`。
+- 修改 PnL、费用、message fee、OTR 核心口径：先看 `public_tools/pnl_layers.py` 的 `PnLLayerBuilder`、`public_tools/exchange_risk.py` 的 `ExchangeRiskCalculator`；若涉及策略诊断 record、报表行或开仓限额汇总，再看 `BackTest/tools/pnl_layers.py`、`BackTest/tools/exchange_risk.py` 与对应版本 `main.py`。
+- 修改单日 / session 诊断图表：先看对应版本 `session_diagnostics.py`，再看 `BackTest/tools/session_plotting.py` 与 `BackTest/tools/artifact_layout.py`。
+- 修改参数搜索目标或搜索空间：先看 `ParamsSearch/optimize_with_pred_params.py`、`ParamsSearch/with_pred_param_search_config.py`、`ParamsSearch/optimize_fair_params.py`。
+- 修改 V2 专属 diagnostics / representative-day / audit / aggregation：优先看 `example_arb_With_Pred_V2/research/`。
+- 添加或修复测试：放到 `TestScripts/test_*.py`，优先复用现有 With_Pred / fair optimizer / PnL / loader 测试风格。
+- 新增 API / 页面 / 数据库结构：**当前仓库不存在标准 API、前端页面或数据库层；如任务要求新增这类模块，需要先确认是否要引入新子系统。**
+- 修改或扩展 foundation contracts/API：从 `common/foundation_contracts.py` 开始，检查测试 `common/tests/foundation/test_contract_vocabulary.py`，并确认合同版本是否需要增加。
+- 修改因果摄入或决策上下文流程：先看 `common/ingress.py::CausalIngress`，再看 `common/tests/foundation/test_phase2_ingress.py`。
+- 修改被动匹配：先看 `common/passive_matching.py::PassiveMatchingService`，再看 `common/tests/foundation/test_phase8_operational.py`。
+- 修改运营重放或压力处理：先看 `common/production_replay.py::ProductionReplayAdapter`，再看 `common/stress.py::StressScenario`，并检查 `common/tests/foundation/test_phase8_production_replay.py` 和 `common/tests/foundation/test_phase7_hardening.py`。
+- 修改研究遥测模式或验证：先看 `common/research_telemetry.py`，再看 `common/tests/foundation/test_phase8_research_telemetry.py`。还要检查研究仓库合同 `Futures-Maker-Hedger/contracts/telemetry_schema.md`。
+- 修改 PnL 归属：先看 `common/pnl_attribution.py::PnlAttributionService`，再看 `common/tests/foundation/test_phase4c_pnl_attribution.py`。
+- 运行 foundation 验收套件：`<py310-env>/python -m pytest common/tests/foundation/ -v`
+
+## Development Commands
+
+以下命令均基于当前工作区 `.venv` 已验证存在；涉及真实回测数据的命令若需要实际运行，还需确认外部数据路径是否可用。
+
+- 使用项目解释器：`./.venv/bin/python`
+- 查看当前主回测 CLI：`./.venv/bin/python -m example_arb_With_Pred_V1.main --help`
+- 查看 With_Pred 参数搜索 CLI：`./.venv/bin/python -m ParamsSearch.optimize_with_pred_params --help`
+- 运行测试：`./.venv/bin/python -m pytest BackTest/TestScripts -q`
+  - 本次实际结果：`134 passed, 1 skipped`
+- 运行 foundation 验收套件：`<py310-env>/python -m pytest common/tests/foundation/ -v`
+  - 本次实际结果：**111 passed**（阶段 1-8：词汇表 9 + 摄入 5 + 执行 32 + PnL 17 + 遥测 6 + 强化 8 + 运营 19 + 研究遥测 5 + 硬合约 5 + 生产重放 19）
+  - 合同版本检查：`<py310-env>/python -m pytest common/tests/foundation/test_contract_vocabulary.py common/tests/foundation/test_phase8_production_replay.py common/tests/foundation/test_phase8_operational.py common/tests/foundation/test_phase8_research_telemetry.py common/tests/foundation/test_phase5_telemetry.py common/tests/foundation/test_phase7_hardening.py -v`（49 项运营/场景验收测试）
+- 查看已安装 console script：`./.venv/bin/arb-backtest --help`
+  - **需要确认**：当前已安装脚本实际指向 `example_arb.main`，与 `pyproject.toml` 声明的 `example_arb_With_Pred_V1.main:main` 不一致，疑似安装元数据未更新。
+- 安装依赖：**需要确认**
+  - 代码依据：仓库存在 `pyproject.toml` 与 `uv.lock`，但未找到根目录安装文档。
+- lint：**需要确认**
+- typecheck：**需要确认**
+- build：**需要确认**
+- 部署：**需要确认**
+
+## Environment Variables
+
+- 已确认的环境变量文件：`.vscode/.env`
+  - 当前内容：`PYTHONPATH="."`
+- `.vscode/settings.json` 已配置：
+  - `python.envFile = ${workspaceFolder}/.vscode/.env`
+  - `python.terminal.useEnvFile = true`
+- 在项目源码目录（`example_arb*`、`public_tools/`、`ParamsSearch/`、`TestScripts/`）中，**未搜索到 runtime `os.getenv` / `os.environ` 读取**。
+- 当前主回测依赖的市场数据目录和 prediction 目录来自代码常量 / 配置模块，而不是环境变量：
+  - `example_arb_With_Pred_V1/main.py::MD = /ext/fut_tick/SHFE/`
+  - `example_arb_With_Pred_V1/main.py::DEFAULT_PRED_DIR = /ext/fut_signals/v5_MR_Liq_0_2/test_ag_lr_0_5/`
+  - `example_arb_With_Pred_V1/config/config_ag.py::PRED_DIR = /ext/fut_signals/v5_MR_Liq_0_2/test_ag_lr_0_5/`
+- **需要确认**：团队在编辑器外或生产环境中是否还依赖其他 shell 环境变量。
+
+## Testing and Validation
+
+### Legacy strategy test suite
+
+- 基线验证命令：`./.venv/bin/python -m pytest TestScripts -q`
+  - 已实测通过：`134 passed, 1 skipped`（CE 72 项：规范性、Golden Master、回归、合理性、loader）
+- 如果改动了 prediction loader / 覆盖规则，优先跑：
+  - `TestScripts/test_prediction_loader.py`
+  - `TestScripts/test_prediction_loader_failfast.py`
+- 如果改动了 prediction 行为层 / direct-flat，优先跑：
+  - `TestScripts/test_prediction_policy_behavior.py`
+  - `TestScripts/test_with_pred_policy_defaults.py`
+- 如果改动了参数搜索，优先跑：
+  - `TestScripts/test_fair_param_optimizer.py`
+  - `TestScripts/test_with_pred_param_search_objective.py`
+  - `TestScripts/test_with_pred_optimizer_warm_start.py`
+- 如果改动了 PnL / 费用口径，优先跑：
+  - `TestScripts/test_pnl_layers.py`
+- 如果改动了输出结构 / 无产物开关，优先跑：
+  - `TestScripts/test_no_artifacts_disables_diagnostics.py`
+- 真实回测 smoke：**需要确认**
+  - 原因：依赖仓库外数据目录 `/ext/fut_tick/SHFE/` 与 prediction 目录 `/ext/fut_signals/...`。
+
+### Foundation test suite
+
+Foundation 验收套件（`common/tests/foundation/`）现阶段有 111 项测试。环境要求：CPython 3.10.13 并安装 `pytest`（参见上文的 Development Commands）。
+
+- 完整 foundation 验收：`<py310-env>/python -m pytest common/tests/foundation/ -v`
+  - 本次实际结果：**111 passed**
+- 运营/场景回归（阶段 5-8）：`<py310-env>/python -m pytest common/tests/foundation/test_phase8_production_replay.py common/tests/foundation/test_phase8_operational.py common/tests/foundation/test_phase8_research_telemetry.py common/tests/foundation/test_phase5_telemetry.py common/tests/foundation/test_phase7_hardening.py common/tests/foundation/test_contract_vocabulary.py -v`
+  - 本次实际结果：**49 passed**
+- 如果改了 contracts/ingress/execution/fills，优先跑：
+  - `common/tests/foundation/test_contract_vocabulary.py`
+  - `common/tests/foundation/test_phase2_ingress.py`
+  - `common/tests/foundation/test_phase3_depth_execution.py`
+- 如果改了 passive matching，优先跑：
+  - `common/tests/foundation/test_phase8_operational.py`
+- 如果改了 PnL attribution/reconciliation，优先跑：
+  - `common/tests/foundation/test_phase4c_pnl_attribution.py`
+- 如果改了 telemetry/research export，优先跑：
+  - `common/tests/foundation/test_phase5_telemetry.py`
+  - `common/tests/foundation/test_phase8_research_telemetry.py`
+- 如果改了 stress/production replay/config，优先跑：
+  - `common/tests/foundation/test_phase7_hardening.py`
+  - `common/tests/foundation/test_phase8_production_replay.py`
+
+## Code Conventions
+
+- 版本化策略目录按包组织：`example_arb*`；不同版本并存，不要默认“重构到一起”。
+- 当前默认主链路是 `example_arb_With_Pred_V1`；若任务未明确要求改旧版本，优先在该目录定位。
+- 配置主要放在 **Python 配置模块**（如 `config/config_ag.py`），不是 YAML / JSON / `.env`。
+- 共享基础设施集中在 `public_tools/`；这里只放公共基础能力。BackTest 个人策略扩展、诊断输出、pair/route 跟踪放 `BackTest/tools/`。
+- 测试统一放在 `TestScripts/test_*.py`，使用 pytest。
+- 仓库是产物密集型项目：很多逻辑会输出 CSV / 图 / session 报告；改字段名、目录结构、artifact schema 前要先检查下游脚本和测试。
+- 编辑器约定（来自 `.vscode/settings.json`）：
+  - Python 保存时格式化
+  - 自动整理 imports
+  - 默认 Python formatter 为 Ruff
+  - `ruff.format.args = ["--line-length=120"]`
+  - `python.analysis.typeCheckingMode = "basic"`
+- 代码中大量路径默认值是硬编码常量或配置模块属性；如果改成环境变量或 CLI 参数，需要同步更新文档与测试。
+- 各版本 `config/` 下带日期、`fullcmp`、`zoomopt` 等字样的历史对比配置，优先收进 `config/archive/`；主目录只保留当前默认配置与仍会被直接复用的少量 compare 配置。
+- 各版本 `output/` 是**运行时生成目录**；干净工作区下它可以不存在，需要时让程序自行重建，而不是长期把旧产物留在源码树里。
+
+### Foundation conventions
+
+- **不可变性：** 所有 foundation 数据类都必须是 `frozen=True`。字段在 `__post_init__` 中使用 `object.__setattr__` 进行深度验证。外部可变对象（如 `dict`）被转换为 `MappingProxyType`。
+- **故障关闭：** 每个错误严重性的不变量都必须使运行不合格。`economics_eligible` 是规范遥测、PnL 归属、研究遥测和执行新鲜度的合取 — 没有一个门控会被无声跳过。
+- **单一权威来源：** 研究遥测字段必须从权威生产者发出 — 策略拥有的字段（`reservation_price`、`trigger_class`、`fired`）来自 `PolicyProposal.decision_attributes`；引擎拥有的字段（`feed_seq`、`book_seq`、`inventory_q/h`）自动派生。在任何一条路径上都不能发明或猜测字段。
+- **合同版本控制：** `FOUNDATION_CONTRACT_VERSION` 必须是显式的语义版本。对任何合同数据类的每一次破坏性更改都必须增加版本并在 `telemetry_schema.md` 中进行文档记录。
+- **因果摄入顺序：** 事件必须仅按 `(available_at, source_seq, event_id)` 排序。账面和信号参考在摄入时创建；在摄入之前，决策上下文不能引用它们。决策时间戳不能在因果上早于最新应用的摄入批次。
+- **压力路径所有权：** 交易所批次回放不支持市场/信号接收时间延迟；它们会被拒绝。订单提交与到达时序由 `ProductionReplayAdapter` 调度器应用，而不是 `DualBookFoundation`（`action_timing_managed_externally=True`）。参与、费用、基差、波动率和开盘控制仍通过 `StressScenario` 显式声明。
+- **测试阶段：** Foundation 测试按验收审查阶段（1-8）组织，便于追溯。每个阶段映射到特定的合同/行为面：阶段 1 词汇表 → 阶段 2 摄入 → 阶段 3 执行 → 阶段 4 PnL → 阶段 5 遥测 → 阶段 7 强化 → 阶段 8 运营。
+- **S0 证据边界：** `ProductionReplayAdapter` 是唯一的 S0 证据运行器。它不能导入 `Market`、`Strategy`、`backtest` 或 `public_tools/`。遗留路径（`Backtest`、`PairMarket`）被冻结为兼容性表面，不能产生标记为 S0 的证据。此边界由 `test_production_replay_has_no_legacy_runtime_imports` 强制执行。
+- **反向传播费用：** 费用始终是往返的。`FEE`（比率）和 `FEE_LOT`（固定金额/手）代表完整的往返成本，并在平仓交易时收取一次（开仓不增加费用）。不要配置为单边值。参见项目 CLAUDE.md。
+
+## Workspace Hygiene
+
+- 不要重新创建根目录 `scripts/` 作为薄 wrapper 层。
+- 公共基础 helper 放 `public_tools/`；BackTest 内多版本复用但非公共的 helper 放 `BackTest/tools/`；版本专属入口、audit、aggregation、triage 直接放对应版本目录。
+- 参数寻优入口统一放根 `ParamsSearch/`；即使只服务某一版本，只要本质仍是优化入口，也不要在版本目录下再建 `ParamsSearch/`。
+- 版本专属的 diagnostics / reporting / representative-date / audit / aggregation 代码放对应版本的 `research/`，例如 `example_arb_With_Pred_V2/research/`。
+- `TestScripts/` 只放 pytest 与会被测试/多目录复用的小 runner；一次性研究脚本不要继续堆在这里。
+- 生成产物不要写回源码树；研究输出优先进 `TestArtifacts/`，参数搜索产物优先进 `ParamsSearch/optuna/`。
+- 各版本目录的当前定位、保留的历史文档、归档配置与清理约定，统一写在各自的 `VERSION_STATUS.md` 中。
+- `__pycache__/`、`.pytest_cache/`、版本内 `output/`、 stray `*.log` 都视为可清理生成物，不应当作源码资产长期保留。
+
+## Do Not Modify Unless Necessary
+
+- `.venv/`: 本地虚拟环境
+- `.pytest_cache/`: pytest 缓存
+- `bt_daily.egg-info/`: 已生成打包元数据；当前已观察到与 `pyproject.toml` 不一致，手改只会让情况更魔幻
+- `uv.lock`: 锁文件
+- `example_arb*/output/`: 各版本运行时输出目录；干净工作区下可不存在，需要时由程序自行创建
+- `TestArtifacts/`: 测试 / 对比 / 研究产物目录
+- `ParamsSearch/optuna/`: Optuna 产物与研究结果目录
+- `.vscode/.env`: 本地编辑器环境文件；除非确实在修开发环境问题，否则不要顺手改
+- `public_tools/`: 除非任务明确涉及共享执行层，否则不要轻易修改。这是一个冻结的遗留兼容性路径。
+- 非目标版本目录（如任务只改 `example_arb_With_Pred_V1` 时，其他 `example_arb_*` 版本不要顺手同步）
+
+## Documentation Maintenance Rule
+
+每次修改代码后，必须检查 `README.md`、`docs/`、模块级说明文档或其他项目文档是否需要同步更新。
+
+只要代码变更影响以下任一内容，就必须同步更新文档：
+
+- 目录结构
+- 启动、构建、测试、部署命令
+- 环境变量
+- API 行为
+- 数据库结构
+- 配置项
+- 模块职责
+- 用户可见行为
+- 开发流程
+- Agent 需要依赖的代码导航信息
+
+如果本次代码变更不需要更新文档，也必须在最终回复中明确说明：**已检查文档，无需更新**。
+
+## Current Uncertainties
+
+- 安装依赖的标准命令是什么：`uv sync`、`pip install -e .` 还是其他流程，**需要确认**。
+- 真实回测所需外部目录 `/ext/fut_tick/SHFE/` 与 `/ext/fut_signals/v5_MR_Liq_0_2/test_ag_lr_0_5/` 在目标环境是否稳定存在，**需要确认**。
+- `arb-backtest` console script 是否应重新安装 / 重新生成，使其与 `pyproject.toml` 保持一致，**需要确认**。
+- 仓库外是否存在 CI / 部署流水线配置，当前代码树内**未发现**，**需要确认**。
+- 当前若要新增 Web/API/数据库能力，应该新建子系统还是继续保持研究型 CLI 仓库形态，**需要确认**。
+
+## S0 Promotion Status
+
+S0 运营修复已实现（所有 10 个步骤已关闭）。111 项 foundation 验收测试 +
+72 项遗留测试通过。剩余的是 S0 提升证据：
+
+1. **冻结的真实政策/测试日剧集** — 一个信号感知的、确定性的双账本交易日重放，具有现实的补丁队列、信号时序和压力矩阵比较，而不是合成夹具
+2. **维持证据** — 样本外的、不可变的维持运行，将 S0 路径与冻结的基线政策进行比较
+
+在这些提升工作完成之前，不能从 `ProductionReplayAdapter` 生成任何 S0 压力比较、维持结果或提升声明。当前状态是 `economics_eligible=True` 的实现证据，而不是政策验证或提升结果。有关详细信息，请参见 [docs/maker-hedger-s0-operational-remediation-plan_26-08-08.md](docs/maker-hedger-s0-operational-remediation-plan_26-08-08.md)。

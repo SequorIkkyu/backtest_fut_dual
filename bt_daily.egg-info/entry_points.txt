@@ -1,0 +1,3 @@
+[console_scripts]
+foundation-taker-demo = examples.foundation_taker.demo:main
+legacy-arb-backtest = examples.legacy.arb.main:main
